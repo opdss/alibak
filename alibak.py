@@ -53,8 +53,12 @@ def bakDB(db_name):
         #数据库文件压缩一下处理
         status, output = commands.getstatusoutput('gzip %s' % dump_file)
         if status != 0:
+            rmLocalFile(dump_file)
             raise Exception('sql压缩失败:' + output)
-        return upload('%s.gz'%dump_file, 'mysql/%s.gz'%file)
+        upload('%s.gz'%dump_file, 'mysql/%s.gz'%file)
+        #删除掉备份文件
+        rmLocalFile('%s.gz'%dump_file)
+        return True
     except Exception as e:
         title = '备份数据库'+','.join(db_name)+'失败'
         log(title + ':'+str(e), title=title)
@@ -71,12 +75,16 @@ def bakDirOrFile(file_name):
         #给备份文件打上时间戳
         fix_date = time.strftime('%Y%m%d-%H%M%S')
         if os.path.isdir(file_name) :
-            key = 'dir/' + os.path.basename(file_name) + '-' + fix_date + '.tar.gz'
+            key = os.path.basename(file_name) + '-' + fix_date + '.tar.gz'
             bak_file = TMP_DIR + '/' + key
             #一次性打包整个根目录。空子目录会被打包。如果只打包不压缩，将"w:gz"参数改为"w:"或"w"即可。
             with tarfile.open(bak_file, "w:gz") as tar:
                 tar.add(file_name, arcname=os.path.basename(file_name))
             log(file_name+' => '+ bak_file, send=False)
+            upload(bak_file, 'dir/' + key)
+            #删除掉备份文件
+            rmLocalFile(bak_file)
+            return True
         else:
             key = 'file/' + os.path.basename(file_name)
             if key.find('.') < 0:
@@ -84,8 +92,7 @@ def bakDirOrFile(file_name):
             else:
                 key = key.replace('.', '-' + fix_date + '.', 1)
             log(file_name + ' => ' + key, send=False)
-            bak_file = file_name
-        return upload(bak_file, key)
+            return upload(file_name, key)
     except Exception as e :
         title = '备份文件或者目录'+file_name+'失败'
         log(title + ':'+str(e), title=title)
@@ -191,7 +198,6 @@ def upload(src_file, dist_file):
             flag = uploadTencent(src_file, dist_file)
         else:
             flag = uploadQiniu(src_file, dist_file)
-    rmLocalFile(src_file)
     return flag
 
 '''
@@ -277,6 +283,7 @@ if __name__ == '__main__':
     parser.add_option('--config', type='string', help=u'配置文件')
     parser.add_option('--days', type='int', help=u'备份时间，过期将会被清除(此功能暂时不稳定)')
     parser.add_option('--log', type='string', help=u'日志文件')
+    parser.add_option('--user', type='string', help=u'邮件接收用户，会覆盖ini配置里的,多个用英文逗号隔开')
 
     (options, args) = parser.parse_args()
 
@@ -305,6 +312,8 @@ if __name__ == '__main__':
             LOG_FILE = options.log
     if options.server:
         SERVER = options.server
+    if options.user:
+        CONFIG['email']['to_addr'] = options.user
 
     #备份数据库
     if options.db != None:
